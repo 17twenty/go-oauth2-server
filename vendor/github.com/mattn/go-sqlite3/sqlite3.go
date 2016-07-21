@@ -9,7 +9,11 @@ package sqlite3
 #cgo CFLAGS: -std=gnu99
 #cgo CFLAGS: -DSQLITE_ENABLE_RTREE -DSQLITE_THREADSAFE
 #cgo CFLAGS: -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_ENABLE_FTS4_UNICODE61
+#ifndef USE_LIBSQLITE3
 #include <sqlite3-binding.h>
+#else
+#include <sqlite3.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +27,10 @@ package sqlite3
 
 #ifndef SQLITE_OPEN_FULLMUTEX
 # define SQLITE_OPEN_FULLMUTEX 0
+#endif
+
+#ifndef SQLITE_DETERMINISTIC
+# define SQLITE_DETERMINISTIC 0
 #endif
 
 static int
@@ -130,7 +138,7 @@ func init() {
 	sql.Register("sqlite3", &SQLiteDriver{})
 }
 
-// Return SQLite library Version information.
+// Version returns SQLite library version information.
 func Version() (libVersion string, libVersionNumber int, sourceId string) {
 	libVersion = C.GoString(C.sqlite3_libversion())
 	libVersionNumber = int(C.sqlite3_libversion_number())
@@ -598,7 +606,7 @@ func errorString(err Error) string {
 }
 
 // Open database and return a new connection.
-// You can specify DSN string with URI filename.
+// You can specify a DSN string using a URI as the filename.
 //   test.db
 //   file:test.db?cache=shared&mode=memory
 //   :memory:
@@ -715,7 +723,7 @@ func (c *SQLiteConn) Close() error {
 	return nil
 }
 
-// Prepare query string. Return a new statement.
+// Prepare the query string. Return a new statement.
 func (c *SQLiteConn) Prepare(query string) (driver.Stmt, error) {
 	pquery := C.CString(query)
 	defer C.free(unsafe.Pointer(pquery))
@@ -893,6 +901,17 @@ func (rc *SQLiteRows) Columns() []string {
 	return rc.cols
 }
 
+// Return column types.
+func (rc *SQLiteRows) DeclTypes() []string {
+	if rc.decltype == nil {
+		rc.decltype = make([]string, rc.nc)
+		for i := 0; i < rc.nc; i++ {
+			rc.decltype[i] = strings.ToLower(C.GoString(C.sqlite3_column_decltype(rc.s.s, C.int(i))))
+		}
+	}
+	return rc.decltype
+}
+
 // Move cursor to next.
 func (rc *SQLiteRows) Next(dest []driver.Value) error {
 	rv := C.sqlite3_step(rc.s.s)
@@ -907,12 +926,7 @@ func (rc *SQLiteRows) Next(dest []driver.Value) error {
 		return nil
 	}
 
-	if rc.decltype == nil {
-		rc.decltype = make([]string, rc.nc)
-		for i := 0; i < rc.nc; i++ {
-			rc.decltype[i] = strings.ToLower(C.GoString(C.sqlite3_column_decltype(rc.s.s, C.int(i))))
-		}
-	}
+	rc.DeclTypes()
 
 	for i := range dest {
 		switch C.sqlite3_column_type(rc.s.s, C.int(i)) {

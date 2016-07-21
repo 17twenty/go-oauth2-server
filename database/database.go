@@ -2,12 +2,19 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/RichardKnop/go-oauth2-server/config"
 	"github.com/jinzhu/gorm"
 	// Drivers
 	_ "github.com/lib/pq"
 )
+
+func init() {
+	gorm.NowFunc = func() time.Time {
+		return time.Now().UTC()
+	}
+}
 
 // NewDatabase returns a gorm.DB struct, gorm.DB.DB() returns a database handle
 // see http://golang.org/pkg/database/sql/#DB
@@ -27,7 +34,7 @@ func NewDatabase(cnf *config.Config) (*gorm.DB, error) {
 
 		db, err := gorm.Open(cnf.Database.Type, args)
 		if err != nil {
-			return &db, err
+			return db, err
 		}
 
 		// Max idle connections
@@ -39,10 +46,9 @@ func NewDatabase(cnf *config.Config) (*gorm.DB, error) {
 		// Database logging
 		db.LogMode(cnf.IsDevelopment)
 
-		return &db, nil
+		return db, nil
 	}
 
 	// Database type not supported
-	return &gorm.DB{},
-		fmt.Errorf("Database type %s not suppported", cnf.Database.Type)
+	return nil, fmt.Errorf("Database type %s not suppported", cnf.Database.Type)
 }

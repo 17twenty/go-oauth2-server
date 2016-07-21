@@ -8,7 +8,8 @@ import (
 )
 
 var (
-	errUserAuthenticationRequired = errors.New("User authentication required")
+	// ErrInvalidUsernameOrPassword ...
+	ErrInvalidUsernameOrPassword = errors.New("Invalid username or password")
 )
 
 func (s *Service) passwordGrant(w http.ResponseWriter, r *http.Request, client *Client) {
@@ -20,7 +21,7 @@ func (s *Service) passwordGrant(w http.ResponseWriter, r *http.Request, client *
 	user, err := s.AuthUser(username, password)
 	if err != nil {
 		// For security reasons, return a general error message
-		response.UnauthorizedError(w, errUserAuthenticationRequired.Error())
+		response.UnauthorizedError(w, ErrInvalidUsernameOrPassword.Error())
 		return
 	}
 
@@ -31,23 +32,8 @@ func (s *Service) passwordGrant(w http.ResponseWriter, r *http.Request, client *
 		return
 	}
 
-	// Create a new access token
-	accessToken, err := s.GrantAccessToken(
-		client, // client
-		user,   // user
-		scope,  // scope
-	)
-	if err != nil {
-		response.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Create or retrieve a refresh token
-	refreshToken, err := s.GetOrCreateRefreshToken(
-		client, // client
-		user,   // user
-		scope,  // scope
-	)
+	// Log in the user
+	accessToken, refreshToken, err := s.Login(client, user, scope)
 	if err != nil {
 		response.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -55,7 +41,7 @@ func (s *Service) passwordGrant(w http.ResponseWriter, r *http.Request, client *
 
 	// Write the JSON access token to the response
 	accessTokenRespone := &AccessTokenResponse{
-		ID:           accessToken.ID,
+		UserID:       user.MetaUserID,
 		AccessToken:  accessToken.Token,
 		ExpiresIn:    s.cnf.Oauth.AccessTokenLifetime,
 		TokenType:    TokenType,

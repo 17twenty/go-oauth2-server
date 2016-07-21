@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/RichardKnop/go-oauth2-server/commands"
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli"
 )
 
 var (
@@ -28,32 +28,28 @@ func main() {
 		{
 			Name:  "migrate",
 			Usage: "run migrations",
-			Action: func(c *cli.Context) {
-				if err := commands.Migrate(); err != nil {
-					log.Fatal(err)
-				}
+			Action: func(c *cli.Context) error {
+				return commands.Migrate()
 			},
 		},
 		{
 			Name:  "loaddata",
 			Usage: "load data from fixture",
-			Action: func(c *cli.Context) {
-				if err := commands.LoadData(c.Args()); err != nil {
-					log.Fatal(err)
-				}
+			Action: func(c *cli.Context) error {
+				return commands.LoadData(c.Args())
 			},
 		},
 		{
 			Name:  "runserver",
 			Usage: "run web server",
-			Action: func(c *cli.Context) {
-				if err := commands.RunServer(); err != nil {
-					log.Fatal(err)
-				}
+			Action: func(c *cli.Context) error {
+				return commands.RunServer()
 			},
 		},
 	}
 
 	// Run the CLI app
-	cliApp.Run(os.Args)
+	if err := cliApp.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }

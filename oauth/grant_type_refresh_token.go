@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	errRequestedScopeCannotBeGreater = errors.New("Requested scope cannot be greater")
+	// ErrRequestedScopeCannotBeGreater ...
+	ErrRequestedScopeCannotBeGreater = errors.New("Requested scope cannot be greater")
 )
 
 func (s *Service) refreshTokenGrant(w http.ResponseWriter, r *http.Request, client *Client) {
@@ -23,35 +24,29 @@ func (s *Service) refreshTokenGrant(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 
-	// Get the scope string
-	scope, err := s.GetScope(r.Form.Get("scope"))
-	if err != nil {
-		response.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	// Default to the scope originally granted by the resource owner
+	scope := theRefreshToken.Scope
+
+	// If the scope is specified in the request, get the scope string
+	if r.Form.Get("scope") != "" {
+		scope, err = s.GetScope(r.Form.Get("scope"))
+		if err != nil {
+			response.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Requested scope CANNOT include any scope not originally granted
 	if !util.SpaceDelimitedStringNotGreater(scope, theRefreshToken.Scope) {
-		response.Error(w, errRequestedScopeCannotBeGreater.Error(), http.StatusBadRequest)
+		response.Error(w, ErrRequestedScopeCannotBeGreater.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Create a new access token
-	accessToken, err := s.GrantAccessToken(
-		theRefreshToken.Client, // client
-		theRefreshToken.User,   // user
-		scope,                  // scope
-	)
-	if err != nil {
-		response.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Create or retrieve a refresh token
-	refreshToken, err := s.GetOrCreateRefreshToken(
-		theRefreshToken.Client, // client
-		theRefreshToken.User,   // user
-		scope,                  // scope
+	// Log in the user
+	accessToken, refreshToken, err := s.Login(
+		theRefreshToken.Client,
+		theRefreshToken.User,
+		scope,
 	)
 	if err != nil {
 		response.Error(w, err.Error(), http.StatusInternalServerError)
@@ -60,12 +55,14 @@ func (s *Service) refreshTokenGrant(w http.ResponseWriter, r *http.Request, clie
 
 	// Write the JSON access token to the response
 	accessTokenRespone := &AccessTokenResponse{
-		ID:           accessToken.ID,
 		AccessToken:  accessToken.Token,
 		ExpiresIn:    s.cnf.Oauth.AccessTokenLifetime,
 		TokenType:    TokenType,
 		Scope:        accessToken.Scope,
 		RefreshToken: refreshToken.Token,
+	}
+	if accessToken.User != nil {
+		accessTokenRespone.UserID = accessToken.User.MetaUserID
 	}
 	response.WriteJSON(w, accessTokenRespone, 200)
 }

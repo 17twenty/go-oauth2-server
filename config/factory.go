@@ -3,12 +3,11 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -18,8 +17,9 @@ var (
 	configLoaded bool
 )
 
+// Cnf ...
 // Let's start with some sensible defaults
-var cnf = &Config{
+var Cnf = &Config{
 	Database: DatabaseConfig{
 		Type:         "postgres",
 		Host:         "localhost",
@@ -48,12 +48,12 @@ var cnf = &Config{
 // It also starts a goroutine in the background to keep config up-to-date
 func NewConfig(mustLoadOnce bool, keepReloading bool) *Config {
 	if configLoaded {
-		return cnf
+		return Cnf
 	}
 
 	// Construct the ETCD endpoint
 	etcdEndpoint := getEtcdEndpoint()
-	log.Printf("ETCD Endpoint: %s", etcdEndpoint)
+	logger.Infof("ETCD Endpoint: %s", etcdEndpoint)
 
 	// ETCD config
 	etcdClientConfig := client.Config{
@@ -66,7 +66,8 @@ func NewConfig(mustLoadOnce bool, keepReloading bool) *Config {
 	// ETCD client
 	etcdClient, err := client.New(etcdClientConfig)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
+		os.Exit(1)
 	}
 
 	// ETCD keys API
@@ -75,13 +76,18 @@ func NewConfig(mustLoadOnce bool, keepReloading bool) *Config {
 	// If the config must be loaded once successfully
 	if mustLoadOnce {
 		// Read from remote config the first time
-		if err := loadConfig(kapi); err != nil {
-			log.Fatal(err)
+		newCnf, err := LoadConfig(kapi)
+		if err != nil {
+			logger.Fatal(err)
+			os.Exit(1)
 		}
+
+		// Refresh the config
+		RefreshConfig(newCnf)
 
 		// Set configLoaded to true
 		configLoaded = true
-		log.Print("Successfully loaded config for the first time")
+		logger.Info("Successfully loaded config for the first time")
 	}
 
 	if keepReloading {
@@ -92,19 +98,45 @@ func NewConfig(mustLoadOnce bool, keepReloading bool) *Config {
 				time.Sleep(time.Second * 10)
 
 				// Attempt to reload the config
-				if err := loadConfig(kapi); err != nil {
-					log.Print(err)
+				newCnf, err := LoadConfig(kapi)
+				if err != nil {
+					logger.Error(err)
 					continue
 				}
 
+				// Refresh the config
+				RefreshConfig(newCnf)
+
 				// Set configLoaded to true
 				configLoaded = true
-				log.Print("Successfully reloaded config")
+				logger.Info("Successfully reloaded config")
 			}
 		}()
 	}
 
-	return cnf
+	return Cnf
+}
+
+// LoadConfig gets the JSON from ETCD and unmarshals it to the config object
+func LoadConfig(kapi client.KeysAPI) (*Config, error) {
+	// Read from remote config the first time
+	resp, err := kapi.Get(context.Background(), configPath, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal the config JSON into the cnf object
+	newCnf := new(Config)
+	if err := json.Unmarshal([]byte(resp.Node.Value), newCnf); err != nil {
+		return nil, err
+	}
+
+	return newCnf, nil
+}
+
+// RefreshConfig sets config through the pointer so config actually gets refreshed
+func RefreshConfig(newCnf *Config) {
+	*Cnf = *newCnf
 }
 
 // getEtcdURL builds ETCD endpoint from environment variables
@@ -119,22 +151,4 @@ func getEtcdEndpoint() string {
 		etcdPort = os.Getenv("ETCD_PORT")
 	}
 	return fmt.Sprintf("http://%s:%s", etcdHost, etcdPort)
-}
-
-// loadConfig gets the JSON from ETCD and unmarshals it to the config object
-func loadConfig(kapi client.KeysAPI) error {
-	// Read from remote config the first time
-	resp, err := kapi.Get(context.Background(), configPath, nil)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal the config JSON into the cnf object
-	newCnf := new(Config)
-	if err := json.Unmarshal([]byte(resp.Node.Value), newCnf); err != nil {
-		return err
-	}
-	cnf = newCnf
-
-	return nil
 }

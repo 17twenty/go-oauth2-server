@@ -1,17 +1,16 @@
-package oauth
+package oauth_test
 
 import (
-	"log"
-
 	"github.com/stretchr/testify/assert"
 
+	"github.com/RichardKnop/go-oauth2-server/oauth"
 	pass "github.com/RichardKnop/go-oauth2-server/password"
 	"github.com/RichardKnop/go-oauth2-server/util"
 )
 
 func (suite *OauthTestSuite) TestFindUserByUsername() {
 	var (
-		user *User
+		user *oauth.User
 		err  error
 	)
 
@@ -23,7 +22,7 @@ func (suite *OauthTestSuite) TestFindUserByUsername() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errUserNotFound, err)
+		assert.Equal(suite.T(), oauth.ErrUserNotFound, err)
 	}
 
 	// When we try to find a user with a valid username
@@ -40,7 +39,7 @@ func (suite *OauthTestSuite) TestFindUserByUsername() {
 
 func (suite *OauthTestSuite) TestCreateUser() {
 	var (
-		user *User
+		user *oauth.User
 		err  error
 	)
 
@@ -55,12 +54,12 @@ func (suite *OauthTestSuite) TestCreateUser() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), "UNIQUE constraint failed: oauth_users.username", err.Error())
+		assert.Equal(suite.T(), oauth.ErrUsernameTaken, err)
 	}
 
 	// We try to insert a unique user
 	user, err = suite.service.CreateUser(
-		"test@user2",    // username
+		"test@newuser",  // username
 		"test_password", // password
 	)
 
@@ -69,31 +68,30 @@ func (suite *OauthTestSuite) TestCreateUser() {
 
 	// Correct user object should be returned
 	if assert.NotNil(suite.T(), user) {
-		assert.Equal(suite.T(), "test@user2", user.Username)
+		assert.Equal(suite.T(), "test@newuser", user.Username)
 	}
 }
 
 func (suite *OauthTestSuite) TestSetPassword() {
 	var (
-		user *User
+		user *oauth.User
 		err  error
 	)
 
 	// Insert a test user without a password
-	user = &User{
+	user = &oauth.User{
 		Username: "test@user_nopass",
 		Password: util.StringOrNull(""),
 	}
-	if err := suite.db.Create(user).Error; err != nil {
-		log.Fatal(err)
-	}
+	err = suite.db.Create(user).Error
+	assert.NoError(suite.T(), err, "Inserting test data failed")
 
-	// Try to set an empty password
-	err = suite.service.SetPassword(user, "")
+	// Try to set a short password
+	err = suite.service.SetPassword(user, "short")
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errCannotSetEmptyUserPassword, err)
+		assert.Equal(suite.T(), oauth.ErrPasswordTooShort, err)
 	}
 
 	// Try changing the password
@@ -109,17 +107,16 @@ func (suite *OauthTestSuite) TestSetPassword() {
 
 func (suite *OauthTestSuite) TestAuthUser() {
 	var (
-		user *User
+		user *oauth.User
 		err  error
 	)
 
 	// Insert a test user without a password
-	if err := suite.db.Create(&User{
+	err = suite.db.Create(&oauth.User{
 		Username: "test@user_nopass",
 		Password: util.StringOrNull(""),
-	}).Error; err != nil {
-		log.Fatal(err)
-	}
+	}).Error
+	assert.NoError(suite.T(), err, "Inserting test data failed")
 
 	// When we try to authenticate a user without a password
 	user, err = suite.service.AuthUser("test@user_nopass", "bogus")
@@ -129,7 +126,7 @@ func (suite *OauthTestSuite) TestAuthUser() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errUserPasswordNotSet, err)
+		assert.Equal(suite.T(), oauth.ErrUserPasswordNotSet, err)
 	}
 
 	// When we try to authenticate with a bogus username
@@ -140,7 +137,7 @@ func (suite *OauthTestSuite) TestAuthUser() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errUserNotFound, err)
+		assert.Equal(suite.T(), oauth.ErrUserNotFound, err)
 	}
 
 	// When we try to authenticate with an invalid password
@@ -151,7 +148,7 @@ func (suite *OauthTestSuite) TestAuthUser() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errInvalidUserPassword, err)
+		assert.Equal(suite.T(), oauth.ErrInvalidUserPassword, err)
 	}
 
 	// When we try to authenticate with valid username and password
@@ -168,7 +165,7 @@ func (suite *OauthTestSuite) TestAuthUser() {
 
 func (suite *OauthTestSuite) TestBlankPassword() {
 	var (
-		user *User
+		user *oauth.User
 		err  error
 	)
 
@@ -193,6 +190,6 @@ func (suite *OauthTestSuite) TestBlankPassword() {
 
 	// Correct error should be returned
 	if assert.NotNil(suite.T(), err) {
-		assert.Equal(suite.T(), errUserPasswordNotSet, err)
+		assert.Equal(suite.T(), oauth.ErrUserPasswordNotSet, err)
 	}
 }

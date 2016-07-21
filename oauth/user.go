@@ -2,6 +2,8 @@ package oauth
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	pass "github.com/RichardKnop/go-oauth2-server/password"
 	"github.com/RichardKnop/go-oauth2-server/util"
@@ -9,10 +11,22 @@ import (
 )
 
 var (
-	errUserNotFound               = errors.New("User not found")
-	errInvalidUserPassword        = errors.New("Invalid user password")
-	errCannotSetEmptyUserPassword = errors.New("Cannot set empty user password")
-	errUserPasswordNotSet         = errors.New("User password not set")
+	// MinPasswordLength defines minimum password length
+	MinPasswordLength = 6
+
+	// ErrPasswordTooShort ...
+	ErrPasswordTooShort = fmt.Errorf(
+		"Password must be at least %d characters long",
+		MinPasswordLength,
+	)
+	// ErrUserNotFound ...
+	ErrUserNotFound = errors.New("User not found")
+	// ErrInvalidUserPassword ...
+	ErrInvalidUserPassword = errors.New("Invalid user password")
+	// ErrUserPasswordNotSet ...
+	ErrUserPasswordNotSet = errors.New("User password not set")
+	// ErrUsernameTaken ...
+	ErrUsernameTaken = errors.New("Username taken")
 )
 
 // UserExists returns true if user exists
@@ -30,7 +44,7 @@ func (s *Service) FindUserByUsername(username string) (*User, error) {
 
 	// Not found
 	if notFound {
-		return nil, errUserNotFound
+		return nil, ErrUserNotFound
 	}
 
 	return user, nil
@@ -38,19 +52,79 @@ func (s *Service) FindUserByUsername(username string) (*User, error) {
 
 // CreateUser saves a new user to database
 func (s *Service) CreateUser(username, password string) (*User, error) {
-	return createUser(s.db, username, password)
+	return s.createUserCommon(s.db, username, password)
 }
 
 // CreateUserTx saves a new user to database using injected db object
 func (s *Service) CreateUserTx(tx *gorm.DB, username, password string) (*User, error) {
-	return createUser(tx, username, password)
+	return s.createUserCommon(tx, username, password)
 }
 
-// SetPassword saves a new user to database
+// SetPassword sets a user password
 func (s *Service) SetPassword(user *User, password string) error {
-	// Cannot set password to empty
-	if password == "" {
-		return errCannotSetEmptyUserPassword
+	return s.setPasswordCommon(s.db, user, password)
+}
+
+// SetPasswordTx sets a user password in a transaction
+func (s *Service) SetPasswordTx(tx *gorm.DB, user *User, password string) error {
+	return s.setPasswordCommon(tx, user, password)
+}
+
+// AuthUser authenticates user
+func (s *Service) AuthUser(username, password string) (*User, error) {
+	// Fetch the user
+	user, err := s.FindUserByUsername(username)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	// Check that the password is set
+	if !user.Password.Valid {
+		return nil, ErrUserPasswordNotSet
+	}
+
+	// Verify the password
+	if pass.VerifyPassword(user.Password.String, password) != nil {
+		return nil, ErrInvalidUserPassword
+	}
+
+	return user, nil
+}
+
+func (s *Service) createUserCommon(db *gorm.DB, username, password string) (*User, error) {
+	// Start with a user without a password
+	user := &User{
+		Username: username,
+		Password: util.StringOrNull(""),
+	}
+
+	// If the password is being set already, create a bcrypt hash
+	if password != "" {
+		if len(password) < MinPasswordLength {
+			return nil, ErrPasswordTooShort
+		}
+		passwordHash, err := pass.HashPassword(password)
+		if err != nil {
+			return nil, err
+		}
+		user.Password = util.StringOrNull(string(passwordHash))
+	}
+
+	// Check the username is available
+	if s.UserExists(user.Username) {
+		return nil, ErrUsernameTaken
+	}
+
+	// Create the user
+	if err := db.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (s *Service) setPasswordCommon(db *gorm.DB, user *User, password string) error {
+	if len(password) < MinPasswordLength {
+		return ErrPasswordTooShort
 	}
 
 	// Create a bcrypt hash
@@ -60,56 +134,8 @@ func (s *Service) SetPassword(user *User, password string) error {
 	}
 
 	// Set the password on the user object
-	if err := s.db.Model(user).UpdateColumn(
-		"password",
-		string(passwordHash),
-	).Error; err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// AuthUser authenticates user
-func (s *Service) AuthUser(username, password string) (*User, error) {
-	// Fetch the user
-	user, err := s.FindUserByUsername(username)
-	if err != nil {
-		return nil, errUserNotFound
-	}
-
-	// Check that the password is set
-	if !user.Password.Valid {
-		return nil, errUserPasswordNotSet
-	}
-
-	// Verify the password
-	if pass.VerifyPassword(user.Password.String, password) != nil {
-		return nil, errInvalidUserPassword
-	}
-
-	return user, nil
-}
-
-func createUser(db *gorm.DB, username, password string) (*User, error) {
-	// Start with a user without a password
-	user := User{
-		Username: username,
-		Password: util.StringOrNull(""),
-	}
-
-	// If the password is being set already, create a bcrypt hash
-	if password != "" {
-		passwordHash, err := pass.HashPassword(password)
-		if err != nil {
-			return nil, err
-		}
-		user.Password = util.StringOrNull(string(passwordHash))
-	}
-
-	// Create the user
-	if err := db.Create(&user).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return db.Model(user).UpdateColumns(User{
+		Password: util.StringOrNull(string(passwordHash)),
+		Model:    gorm.Model{UpdatedAt: time.Now()},
+	}).Error
 }

@@ -8,18 +8,25 @@ import (
 )
 
 var (
-	errRefreshTokenNotFound = errors.New("Refresh token not found")
-	errRefreshTokenExpired  = errors.New("Refresh token expired")
+	// ErrRefreshTokenNotFound ...
+	ErrRefreshTokenNotFound = errors.New("Refresh token not found")
+	// ErrRefreshTokenExpired ...
+	ErrRefreshTokenExpired = errors.New("Refresh token expired")
 )
 
 // GetOrCreateRefreshToken retrieves an existing refresh token, if expired,
 // the token gets deleted and new refresh token is created
-func (s *Service) GetOrCreateRefreshToken(client *Client, user *User, scope string) (*RefreshToken, error) {
+func (s *Service) GetOrCreateRefreshToken(client *Client, user *User, expiresIn int, scope string) (*RefreshToken, error) {
 	// Try to fetch an existing refresh token first
 	refreshToken := new(RefreshToken)
+	clientID := util.PositiveIntOrNull(int64(client.ID))
+	userID := util.PositiveIntOrNull(0) // user ID can be NULL
+	if user != nil {
+		userID = util.PositiveIntOrNull(int64(user.ID))
+	}
 	found := !s.db.Where(RefreshToken{
-		ClientID: util.PositiveIntOrNull(int64(client.ID)),
-		UserID:   util.PositiveIntOrNull(int64(user.ID)),
+		ClientID: clientID,
+		UserID:   userID,
 	}).Preload("Client").Preload("User").First(refreshToken).RecordNotFound()
 
 	// Check if the token is expired, if found
@@ -35,12 +42,7 @@ func (s *Service) GetOrCreateRefreshToken(client *Client, user *User, scope stri
 
 	// Create a new refresh token if it expired or was not found
 	if expired || !found {
-		refreshToken = newRefreshToken(
-			s.cnf.Oauth.RefreshTokenLifetime, // expires in
-			client, // client
-			user,   // user
-			scope,  // scope
-		)
+		refreshToken = NewRefreshToken(client, user, expiresIn, scope)
 		if err := s.db.Create(refreshToken).Error; err != nil {
 			return nil, err
 		}
@@ -60,12 +62,12 @@ func (s *Service) GetValidRefreshToken(token string, client *Client) (*RefreshTo
 
 	// Not found
 	if notFound {
-		return nil, errRefreshTokenNotFound
+		return nil, ErrRefreshTokenNotFound
 	}
 
 	// Check the refresh token hasn't expired
 	if time.Now().After(refreshToken.ExpiresAt) {
-		return nil, errRefreshTokenExpired
+		return nil, ErrRefreshTokenExpired
 	}
 
 	return refreshToken, nil

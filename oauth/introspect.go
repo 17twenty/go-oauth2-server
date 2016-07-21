@@ -8,13 +8,17 @@ import (
 )
 
 const (
-	accessTokenHint  = "access_token"
-	refreshTokenHint = "refresh_token"
+	// AccessTokenHint ...
+	AccessTokenHint = "access_token"
+	// RefreshTokenHint ...
+	RefreshTokenHint = "refresh_token"
 )
 
 var (
-	errTokenMissing     = errors.New("Token missing")
-	errTokenHintInvalid = errors.New("Invalid token hint")
+	// ErrTokenMissing ...
+	ErrTokenMissing = errors.New("Token missing")
+	// ErrTokenHintInvalid ...
+	ErrTokenHintInvalid = errors.New("Invalid token hint")
 )
 
 func (s *Service) introspectToken(w http.ResponseWriter, r *http.Request, client *Client) {
@@ -26,33 +30,33 @@ func (s *Service) introspectToken(w http.ResponseWriter, r *http.Request, client
 
 	token := r.Form.Get("token")
 	if token == "" {
-		response.Error(w, errTokenMissing.Error(), http.StatusBadRequest)
+		response.Error(w, ErrTokenMissing.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tokenTypeHint := r.Form.Get("token_type_hint")
 
 	if tokenTypeHint == "" {
-		tokenTypeHint = accessTokenHint
+		tokenTypeHint = AccessTokenHint
 	}
 
 	var ir *IntrospectResponse
 
 	switch tokenTypeHint {
-	case accessTokenHint:
+	case AccessTokenHint:
 		var ok bool
 		ir, ok = s.introspectAccessToken(w, token)
 		if !ok {
 			ir, _ = s.introspectRefreshToken(w, token, client)
 		}
-	case refreshTokenHint:
+	case RefreshTokenHint:
 		var ok bool
 		ir, ok = s.introspectRefreshToken(w, token, client)
 		if !ok {
 			ir, _ = s.introspectAccessToken(w, token)
 		}
 	default:
-		response.Error(w, errTokenHintInvalid.Error(), http.StatusBadRequest)
+		response.Error(w, ErrTokenHintInvalid.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -63,6 +67,7 @@ func (s *Service) introspectToken(w http.ResponseWriter, r *http.Request, client
 	response.WriteJSON(w, ir, 200)
 }
 
+// IntrospectResponseAccessToken ...
 func (s *Service) IntrospectResponseAccessToken(at *AccessToken) *IntrospectResponse {
 	ir := IntrospectResponse{
 		Active:    true,
@@ -70,11 +75,19 @@ func (s *Service) IntrospectResponseAccessToken(at *AccessToken) *IntrospectResp
 		TokenType: TokenType,
 		ExpiresAt: int(at.ExpiresAt.Unix()),
 	}
-	if at.Client != nil {
-		ir.ClientID = at.Client.Key
+	if at.ClientID.Valid {
+		c := new(Client)
+		notFound := s.db.Select("key").First(c, at.ClientID.Int64).RecordNotFound()
+		if !notFound {
+			ir.ClientID = c.Key
+		}
 	}
-	if at.User != nil {
-		ir.Username = at.User.Username
+	if at.UserID.Valid {
+		u := new(User)
+		notFound := s.db.Select("username").First(u, at.UserID.Int64).RecordNotFound()
+		if !notFound {
+			ir.Username = u.Username
+		}
 	}
 
 	return &ir
@@ -90,6 +103,7 @@ func (s *Service) introspectAccessToken(w http.ResponseWriter, token string) (*I
 	return s.IntrospectResponseAccessToken(at), true
 }
 
+// IntrospectResponseRefreshToken ...
 func (s *Service) IntrospectResponseRefreshToken(rt *RefreshToken) *IntrospectResponse {
 	ir := IntrospectResponse{
 		Active:    true,
@@ -97,11 +111,19 @@ func (s *Service) IntrospectResponseRefreshToken(rt *RefreshToken) *IntrospectRe
 		TokenType: TokenType,
 		ExpiresAt: int(rt.ExpiresAt.Unix()),
 	}
-	if rt.Client != nil {
-		ir.ClientID = rt.Client.Key
+	if rt.ClientID.Valid {
+		c := new(Client)
+		notFound := s.db.Select("key").First(c, rt.ClientID.Int64).RecordNotFound()
+		if !notFound {
+			ir.ClientID = c.Key
+		}
 	}
-	if rt.User != nil {
-		ir.Username = rt.User.Username
+	if rt.UserID.Valid {
+		u := new(User)
+		notFound := s.db.Select("username").First(u, rt.UserID.Int64).RecordNotFound()
+		if !notFound {
+			ir.Username = u.Username
+		}
 	}
 	return &ir
 }

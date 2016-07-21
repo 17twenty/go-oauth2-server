@@ -2,11 +2,14 @@
 language: go
 
 go:
-  - 1.5.3
+  - 1.6
 
 branches:
   only:
     - master
+
+before_script:
+  - createuser --createdb go_oauth2_server
 
 script:
   - make test
